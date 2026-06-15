@@ -26,7 +26,7 @@ struct SystemData {
 
     // system Parameters
 //    const float tolerance = 2.0;        // tolerance
-    const float tolerancePercent = 5.0;  // % tolerance
+    const float tolerancePercent = .05;  // % tolerance
     const unsigned long T_stable = 500; // ms
     const unsigned long T_measure = 500; // ms
     const unsigned long T_calib = 1000; // ms
@@ -54,8 +54,10 @@ struct SystemData {
     float loadSum = 0;
     uint16_t sampleCount = 0;
 
-    float currentBin[101] = {0};
-    float voltageBin[101] = {0};
+    /* float currentBins[101] = {0};
+    float voltageBins[101] = {0}; */
+    int currentBins[101] = {0};
+    int voltageBins[101] = {0};
     float loadBins[101] = {0};
 //    bool binFilled[101] = {false};
 
@@ -73,19 +75,19 @@ HardwareParams params;
 
 
 void send_all_data(const SystemData& data_to_send){
-    Serial.println("\n➔ Sending Data...");
+    Serial.println(F("\n➔ Sending Data..."));
 
-    Serial.println("Th[%]\tL[g]\tV[V]\tI[A]");
+    Serial.println(F("Th[%],\tL[g],\tV[V],\tI[A]"));
 
     for(int i = 0; i <= 100; i++){
 //        if( (data.binFilled_firstHalf & (1ULL << i)) || (data.binFilled_secondHalf & (1ULL << (i-64))) ){
         Serial.print(i);
-        Serial.print("\t");
+        Serial.print(F(",\t"));
         Serial.print(data.loadBins[i]);
-        Serial.print("\t");
-        Serial.print(data.voltageBin[i]);
-        Serial.print("\t");
-        Serial.println(data.currentBin[i]);
+        Serial.print(F(",\t"));
+        Serial.print(data.voltageBins[i] * data.Rv );
+        Serial.print(F(",\t"));
+        Serial.println(data.currentBins[i] * data.Rc);
 //        }
     }
 }
@@ -112,7 +114,7 @@ unsigned long readThrottle(AsRaw){
 float readThrottle(AsMapped){
     unsigned long raw = pulseIn(params.throttlePin, HIGH, 30000);
     if( raw <= 0){
-//        Serial.println("Sorry there has been an error in reading the throttle value, we are going to restart");
+//        Serial.println(F("Sorry there has been an error in reading the throttle value, we are going to restart"));
 //        state = WAIT_STABLE;
 //        timerRunning = false;
         return -1;
@@ -137,7 +139,8 @@ unsigned long readThrottle(){
 
 // tells if a is withing +-tolerancePercent of b, must always use b as the reference
 bool withinTolerancePercent(float a, float b) {
-  return abs( a/b - 1 ) <= data.tolerancePercent;
+    if (b == 0) return abs(a - b) <= 1; //abs(a) <= data.tolerancePercent;
+    return abs( a/b - 1 ) <= data.tolerancePercent;
 }
 
 /* bool withinTolerance(unsigned long a, unsigned long b) {
@@ -147,9 +150,9 @@ bool withinTolerancePercent(float a, float b) {
 
 
 uint8_t quantize(float t) {
-  if (t < 0) return 0;
-  if (t > 100) return 100;
-  return (uint8_t)(t + 0.5);
+    if (t < 0) return 0;
+    if (t > 100) return 100;
+    return (uint8_t)(t + 0.5);
 }
 
 
@@ -164,6 +167,27 @@ enum class MainState {
     Communication   // communicating back to the users all acquired Data
 };
 
+void printState(const MainState& state) {
+    switch (state) {
+        case MainState::Idle:
+        Serial.print(F("Idle"));
+        break;
+        case MainState::Calibration:
+        Serial.print(F("Calibration"));
+        break;
+        case MainState::Measurement:
+        Serial.print(F("Measurement"));
+        break;
+        case MainState::Error:
+        Serial.print(F("Error"));
+        break;
+        case MainState::Communication:
+        Serial.print(F("Communication"));
+        break;
+    }
+};
+
+
 // Sub machine with initial clearing state, state for each sensor and final completion state
 enum class CalibSubState {
     Init,
@@ -174,6 +198,31 @@ enum class CalibSubState {
     Complete
 };
 
+void printState(const CalibSubState& state) {
+    switch (state) {
+        case CalibSubState::Init:
+        Serial.print(F("Init"));
+        break;
+        case CalibSubState::Voltage:
+        Serial.print(F("Voltage"));
+        break;
+        case CalibSubState::Current:
+        Serial.print(F("Current"));
+        break;
+        case CalibSubState::LoadCell:
+        Serial.print(F("LoadCell"));
+        break;
+        case CalibSubState::Throttle:
+        Serial.print(F("Throttle"));
+        break;
+        case CalibSubState::Complete:
+        Serial.print(F("Complete"));
+        break;
+    }
+};
+
+
+
 enum class ThrottleMeasureSubState {
     Init,
     Stabilize,
@@ -181,12 +230,37 @@ enum class ThrottleMeasureSubState {
     Measure,
 };
 
+void printState(const ThrottleMeasureSubState& state) {
+    switch (state) {
+        case ThrottleMeasureSubState::Init:
+        Serial.print(F("Init"));
+        break;
+        case ThrottleMeasureSubState::Stabilize:
+        Serial.print(F("Stabilize"));
+        break;
+        case ThrottleMeasureSubState::Calibrate:
+        Serial.print(F("Calibrate"));
+        break;
+        case ThrottleMeasureSubState::Measure:
+        Serial.print(F("Measure"));
+        break;
+    }
+};
+
 
 struct MachineController {
     MainState currentMainState = MainState::Idle;
+    MainState previousMainState = MainState::Error; // In order to print the welcome message as we start
     CalibSubState currentCalibState = CalibSubState::Init;
     ThrottleMeasureSubState currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
     
+    bool stateChanged(){
+        if (currentMainState != previousMainState){
+            previousMainState = currentMainState;
+            return true;
+        }
+        return false;
+    }
     // General Purpose variables;
 //    bool calibrated = false;
 
@@ -200,22 +274,25 @@ struct MachineController {
 
         switch (currentMainState) {
             case MainState::Idle: {
-                Serial.println("\n➔ Current State: Idle");
                 // Run Calibration if not yet calibrated
                 // Otherwise wait for commands
 
                 if( data.calibrated == false){
-                    Serial.println("➔ Device is not Calibrated");
+                    Serial.println(F("➔ Device is not Calibrated"));
                     currentCalibState = CalibSubState::Init;
                     currentMainState = MainState::Calibration;
                     break;
                 }
 
-                Serial.println("➔ Press 'c' to start a calibration routine");
-                Serial.println("➔ Press 'm' to start a measurement routine");
-                Serial.println("➔ Press 's' to start a data comms routine");
-                while(Serial.available()) Serial.read();
-                Serial.print("➔ ");
+                if (stateChanged()) {
+                    Serial.println(F("\n➔ Current State: Idle"));
+                    
+                    Serial.println(F("➔ Press 'c' to start a calibration routine"));
+                    Serial.println(F("➔ Press 'm' to start a measurement routine"));
+                    Serial.println(F("➔ Press 's' to start a data comms routine"));
+                    while(Serial.available()) Serial.read();
+                    Serial.print(F("➔ "));
+                }
                 /* ADD ABILITY TO READ THE SERIAL INPUT*/
                 while(Serial.available() == 0);
                 char input = Serial.read();
@@ -226,7 +303,7 @@ struct MachineController {
                         break;
                     case 'm':
                         if (data.calibrated == false){
-                            Serial.println("➔ Device is not Calibrated, please calibrate first");
+                            Serial.println(F("➔ Device is not Calibrated, please calibrate first"));
                             break;
                         } else {
                             currentMainState = MainState::Measurement;
@@ -235,12 +312,14 @@ struct MachineController {
                         }
                     case 's':
                         if (data.measured == false){
-                            Serial.println("➔ No data measured yet, please run a measurement first");
+                            Serial.println(F("➔ No data measured yet, please run a measurement first"));
                             break;
                         } else {
                             currentMainState = MainState::Communication;
                             break;
                         }
+                    default:
+                        Serial.println(F("➔ Invalid input, please try again\n➔ "));
 
                     }
                 }
@@ -250,19 +329,19 @@ struct MachineController {
 
 /*             case MainState::Idle:
                 // Wait for a button press or command to start calibration
-                Serial.println("System Idle. Starting Calibration...");
+                Serial.println(F("System Idle. Starting Calibration..."));
                 currentCalibState = CalibSubState::Init; // Reset sub-state
                 currentMainState = MainState::Calibration;
                 break;
  */
             case MainState::Calibration:
-                Serial.println("\n➔ Current State: Calibration");
+                if(stateChanged()) Serial.println(F("\n➔ Current State: Calibration"));
                 // Call the dedicated machine handler
                 runCalibrationSubMachine();
                 break;
 
             case MainState::Measurement:
-                Serial.println("\n➔ Current State: Measurement");
+                if(stateChanged()) Serial.println(F("\n➔ Current State: Measurement"));
 
 //                currentThrottleMeasureState = ThrottleMeasureSubState::Init;
                 runThrottleSubmachine();
@@ -270,7 +349,7 @@ struct MachineController {
                 break;
 
             case MainState::Communication:
-                Serial.println("\n➔ Current State: Communication");
+                if(stateChanged()) Serial.println(F("\n➔ Current State: Communication"));
                 // Handle communication with the user, sending acquired data, etc.
 
                 send_all_data(data);
@@ -289,7 +368,7 @@ private:
     void runCalibrationSubMachine() {
         switch (currentCalibState) {
             case CalibSubState::Init:
-                Serial.println("\n➔ Starting Calibration...");
+                Serial.println(F("\n➔ Starting Calibration..."));
                 
                 data.Rc = 0;
                 data.Rv = 0;
@@ -301,21 +380,22 @@ private:
                 break;
 
             case CalibSubState::Voltage:
-                Serial.println("\n➔ Calibrating Voltage Sensor...");
+                Serial.println(F("\n➔ Calibrating Voltage Sensor..."));
                 
                 while(Serial.available()) Serial.read();
-                Serial.println("Please input the Voltage measuring ratio Rv ( actual voltage = measured Voltage * Rv):\n\t");
+                Serial.println(F("Please input the Voltage measuring ratio Rv ( actual voltage = measured Voltage * Rv):\n\t"));
                 while(Serial.available() == 0);
                 data.Rv = Serial.parseFloat();
+//                if( Serial.available() ) data.Rv = Serial.parseFloat();
 
                 currentCalibState = CalibSubState::Current;
                 break;
 
             case CalibSubState::Current:
-                Serial.println("\n➔ Calibrating Current Sensor...");
+                Serial.println(F("\n➔ Calibrating Current Sensor..."));
 
                 while(Serial.available()) Serial.read();
-                Serial.println("Please input the Current measuring ratio Rc ( actual current = measured current * Rc):\n\t");
+                Serial.println(F("Please input the Current measuring ratio Rc ( actual current = measured current * Rc):\n\t"));
                 while(Serial.available() == 0);
                 data.Rc = Serial.parseFloat();
 
@@ -323,19 +403,19 @@ private:
                 break;
 
             case CalibSubState::LoadCell: {
-                Serial.println("\n➔ Calibrating Load Cell...");
+                Serial.println(F("\n➔ Calibrating Load Cell..."));
 
-                Serial.print("➔ Remove all weight from the loadcell");
+                Serial.print(F("➔ Remove all weight from the loadcell"));
                 while (Serial.available()) Serial.read();
-                Serial.println(" and press Enter");
+                Serial.println(F(" and press Enter"));
                 while (Serial.available() == 0);
 
                 scale.tare(20);
                 int32_t offset = scale.get_offset();
 
-                Serial.print("➔ Place a weight on the loadcell");
+                Serial.print(F("➔ Place a weight on the loadcell"));
                 while (Serial.available()) Serial.read();
-                Serial.print(" and enter the weight in (whole) grams and press Enter: ");
+                Serial.print(F(" and enter the weight in (whole) grams and press Enter: "));
 
                 uint32_t weight = 0;
                 while (Serial.peek() != '\n')
@@ -351,7 +431,7 @@ private:
                     }
                 }
 
-                Serial.print("WEIGHT: ");
+                Serial.print(F("WEIGHT: "));
                 Serial.println(weight);
                 scale.calibrate_scale(weight, 20);
                 float scaling_value = scale.get_scale();
@@ -364,12 +444,12 @@ private:
             }
 
             case CalibSubState::Throttle:
-                Serial.println("\n➔ Calibrating Throttle...");
+                Serial.println(F("\n➔ Calibrating Throttle..."));
 
                 while(Serial.available()) Serial.read();
-                Serial.print("➔ Set throttle to minimum");
-                delay(3000);
-                Serial.println(" and press Enter");
+                Serial.print(F("➔ Set throttle to minimum"));
+                delay(1000);
+                Serial.println(F(" and press Enter"));
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 while(Serial.available() == 0){
                     data.instantaneousRawThrottle = readThrottle();
@@ -379,12 +459,14 @@ private:
 //                currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
 //                runThrottleSubmachine();
                 data.minThrottle = data.rawThrottleSwap;
+
+                while(Serial.available()) Serial.read();
                 data.rawThrottleSwap = 0;
 
                 while(Serial.available()) Serial.read();
-                Serial.print("➔ Set throttle to maximum");
-                delay(3000);
-                Serial.println(" and press Enter");
+                Serial.print(F("➔ Set throttle to maximum"));
+                delay(1000);
+                Serial.println(F(" and press Enter"));
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 while(Serial.available() == 0){
                     data.instantaneousRawThrottle = readThrottle();
@@ -401,7 +483,13 @@ private:
                 break;
 
             case CalibSubState::Complete:
-                Serial.println("\n➔ Calibration Complete!");
+                if( !data.calibrated ){
+                    Serial.println(data.Rv);/*******************************************************************************************************************************************************************************************************************/
+                    Serial.println(data.Rc);/*******************************************************************************************************************************************************************************************************************/
+                    Serial.println(data.minThrottle);/**********************************************************************************************************************************************************************************************************/
+                    Serial.println(data.maxThrottle);/**********************************************************************************************************************************************************************************************************/
+                }
+                Serial.println(F("\n➔ Calibration Complete!"));
                 data.calibrated = true; // Set the flag to indicate calibration is done
                 currentMainState = MainState::Idle; // Return to idle or move to measurement
                 break;
@@ -424,8 +512,14 @@ private:
                 data.stableStart = 0;
                 data.measureStart = 0;
                 data.timerRunning = false;
+                data.currentSum = 0;
+                data.voltageSum = 0;
                 data.loadSum = 0;
                 data.sampleCount = 0;
+
+                // FIND A WAY TO CLEAR THE BINS WITHOUT HAVING TO LOOP THROUGH THEM
+//                data.loadBins = {0};
+            
 
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 break;
@@ -474,6 +568,8 @@ private:
                     if (millis() - data.stableStart > data.T_stable) {
                         // stable achieved
                         data.stableMappedValue = data.instantaneousMappedThrottle;
+                        data.currentSum = 0;
+                        data.voltageSum = 0;
                         data.loadSum = 0;
                         data.sampleCount = 0;
                         data.measureStart = millis();
@@ -512,14 +608,18 @@ private:
                 if (millis() - data.measureStart > data.T_measure) {
 
                     if (data.sampleCount > 0) {
-                        float avgCurrent = data.currentSum / data.sampleCount * data.Rc;
+/*                         float avgCurrent = data.currentSum / data.sampleCount * data.Rc;
                         float avgVoltage = data.voltageSum / data.sampleCount * data.Rv;
-                        float avgLoad = data.loadSum / data.sampleCount;
+                        float avgLoad = data.loadSum / data.sampleCount; */
+                        int avgCurrent = (int)(data.currentSum / data.sampleCount);
+                        int avgVoltage = (int)(data.voltageSum / data.sampleCount);
+                        float avgLoad = data.loadSum / data.sampleCount;                        
+
                         uint8_t bin = quantize(data.stableMappedValue);
 
                         // Store avgLoad in the corresponding bin
-                        data.currentBin[bin] = avgCurrent;
-                        data.voltageBin[bin] = avgVoltage;
+                        data.currentBins[bin] = avgCurrent;
+                        data.voltageBins[bin] = avgVoltage;
                         data.loadBins[bin] = avgLoad; // Assuming bins is defined somewhere
 //                        data.binFilled[bin] = true; // Mark this bin as filled
 
@@ -534,16 +634,16 @@ private:
                         // there is an way to exit, either when all bins are filled
                         // or through a user command
 
-                        Serial.print("Stored bin ");
+                        Serial.print(F("Stored bin "));
                         Serial.print(bin);
-                        Serial.print(" → ");
+                        Serial.print(F(" → "));
                         Serial.println(avgLoad);
                     }
 
                     // printStatus(); // Optionally print status
 
-                    if( (data.binFilled_firstHalf ^ 0ULL) == 0 && (data.binFilled_secondHalf ^ 0x1FFFFFFFFF) == 0 ){
-                        Serial.println("All bins filled, ending measurement routine.");
+                    if( (data.binFilled_firstHalf ^ 0xFFFFFFFFFFFFFFFFULL) == 0 && (data.binFilled_secondHalf ^ 0x1FFFFFFFFF) == 0 ){
+                        Serial.println(F("All bins filled, ending measurement routine."));
                         data.measured = true;
                         currentMainState = MainState::Idle;
                         break;
@@ -599,6 +699,11 @@ void setup(){
 
 void loop() {
     machine.update(); // Continuously call update to run the state machine
+    printState(machine.currentMainState);
+    Serial.print(", ");
+    printState(machine.currentCalibState);
+    Serial.print(", ");
+    printState(machine.currentThrottleMeasureState);
 }
 
 
