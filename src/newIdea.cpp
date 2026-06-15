@@ -25,7 +25,7 @@ struct SystemData {
 
 
     // system Parameters
-    const float tolerance = 2.0;        // tolerance
+//    const float tolerance = 2.0;        // tolerance
     const float tolerancePercent = 5.0;  // % tolerance
     const unsigned long T_stable = 500; // ms
     const unsigned long T_measure = 500; // ms
@@ -67,6 +67,29 @@ struct SystemData {
 
 SystemData data;
 HardwareParams params;
+
+
+
+
+
+void send_all_data(const SystemData& data_to_send){
+    Serial.println("\n➔ Sending Data...");
+
+    Serial.println("Th[%]\tL[g]\tV[V]\tI[A]");
+
+    for(int i = 0; i <= 100; i++){
+//        if( (data.binFilled_firstHalf & (1ULL << i)) || (data.binFilled_secondHalf & (1ULL << (i-64))) ){
+        Serial.print(i);
+        Serial.print("\t");
+        Serial.print(data.loadBins[i]);
+        Serial.print("\t");
+        Serial.print(data.voltageBin[i]);
+        Serial.print("\t");
+        Serial.println(data.currentBin[i]);
+//        }
+    }
+}
+
 
 /* auto readThrottle(bool calibrationMode){
     auto raw = pulseIn(throttlePin, HIGH, 30000);
@@ -117,9 +140,9 @@ bool withinTolerancePercent(float a, float b) {
   return abs( a/b - 1 ) <= data.tolerancePercent;
 }
 
-bool withinTolerance(unsigned long a, unsigned long b) {
+/* bool withinTolerance(unsigned long a, unsigned long b) {
   return abs((long)a - (long)b) <= data.tolerance;
-}
+} */
 
 
 
@@ -176,7 +199,7 @@ struct MachineController {
 
 
         switch (currentMainState) {
-            case MainState::Idle:
+            case MainState::Idle: {
                 Serial.println("\n➔ Current State: Idle");
                 // Run Calibration if not yet calibrated
                 // Otherwise wait for commands
@@ -207,6 +230,7 @@ struct MachineController {
                             break;
                         } else {
                             currentMainState = MainState::Measurement;
+                            currentThrottleMeasureState = ThrottleMeasureSubState::Init;
                             break;
                         }
                     case 's':
@@ -219,6 +243,7 @@ struct MachineController {
                         }
 
                     }
+                }
                     
 
 
@@ -239,7 +264,7 @@ struct MachineController {
             case MainState::Measurement:
                 Serial.println("\n➔ Current State: Measurement");
 
-                currentThrottleMeasureState = ThrottleMeasureSubState::Init;
+//                currentThrottleMeasureState = ThrottleMeasureSubState::Init;
                 runThrottleSubmachine();
 
                 break;
@@ -255,6 +280,7 @@ struct MachineController {
 
             case MainState::Error:
                 // Handle errors
+                // doesnt really do shit as of now
                 break;
         }
     }
@@ -296,7 +322,7 @@ private:
                 currentCalibState = CalibSubState::LoadCell;
                 break;
 
-            case CalibSubState::LoadCell:
+            case CalibSubState::LoadCell: {
                 Serial.println("\n➔ Calibrating Load Cell...");
 
                 Serial.print("➔ Remove all weight from the loadcell");
@@ -335,25 +361,39 @@ private:
 
                 currentCalibState = CalibSubState::Throttle;
                 break;
+            }
 
             case CalibSubState::Throttle:
                 Serial.println("\n➔ Calibrating Throttle...");
 
                 while(Serial.available()) Serial.read();
-                Serial.println("➔ Set throttle to minimum and press Enter");
-                while(Serial.available() == 0);
-
+                Serial.print("➔ Set throttle to minimum");
+                delay(3000);
+                Serial.println(" and press Enter");
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
-                runThrottleSubmachine();
+                while(Serial.available() == 0){
+                    data.instantaneousRawThrottle = readThrottle();
+                    runThrottleSubmachine();
+                };
+
+//                currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
+//                runThrottleSubmachine();
                 data.minThrottle = data.rawThrottleSwap;
                 data.rawThrottleSwap = 0;
 
                 while(Serial.available()) Serial.read();
-                Serial.println("➔ Set throttle to maximum and press Enter");
-                while(Serial.available() == 0);
-
+                Serial.print("➔ Set throttle to maximum");
+                delay(3000);
+                Serial.println(" and press Enter");
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
+                while(Serial.available() == 0){
+                    data.instantaneousRawThrottle = readThrottle();
+                    runThrottleSubmachine();
+                }
+
+/*                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 runThrottleSubmachine();
+ */
                 data.maxThrottle = data.rawThrottleSwap;
                 data.rawThrottleSwap = 0;
 
@@ -392,7 +432,7 @@ private:
 
 
             case ThrottleMeasureSubState::Stabilize:
-                if(data.calibrated){
+                if(data.calibrated == false){
 //                if( calibrationMode == true){
                     
                     if (!data.timerRunning) {
@@ -502,7 +542,7 @@ private:
 
                     // printStatus(); // Optionally print status
 
-                    if( data.binFilled_firstHalf ^ 0ULL == 0 && data.binFilled_secondHalf ^ 0x1FFFFFFFFF == 0 ){
+                    if( (data.binFilled_firstHalf ^ 0ULL) == 0 && (data.binFilled_secondHalf ^ 0x1FFFFFFFFF) == 0 ){
                         Serial.println("All bins filled, ending measurement routine.");
                         data.measured = true;
                         currentMainState = MainState::Idle;
