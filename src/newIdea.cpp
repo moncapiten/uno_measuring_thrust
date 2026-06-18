@@ -67,6 +67,11 @@ struct SystemData {
 
 };
 
+// adding prototypes here cause otherwise Arduino won't compile, despite pio compiling without an issue
+enum class MainState;
+enum class CalibSubState;
+enum class ThrottleMeasureSubState;
+
 SystemData data;
 HardwareParams params;
 
@@ -167,7 +172,7 @@ enum class MainState {
     Communication   // communicating back to the users all acquired Data
 };
 
-void printState(const MainState& state) {
+void printState(const MainState state) {
     switch (state) {
         case MainState::Idle:
         Serial.print(F("Idle"));
