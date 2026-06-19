@@ -308,7 +308,7 @@ struct MachineController {
     void update() {
         data.instantaneousRawThrottle = readThrottle();
         if (data.calibrated) data.instantaneousMappedThrottle = map(data.instantaneousRawThrottle, data.minThrottle, data.maxThrottle, 0UL, 100UL);
-        Serial.print(data.instantaneousRawThrottle);
+//        Serial.print(data.instantaneousRawThrottle);
 /*         if( data.calibrated){
             Serial.print(" ⇒ ");
             Serial.print(data.instantaneousMappedThrottle);
@@ -645,15 +645,7 @@ private:
                     }
 
 
-                    if(Serial.available() > 0){
-                        char input = Serial.read();
-                        if(input == 'q'){
-                            Serial.println(F("➔ Exiting Measurement Routine..."));
-                            currentMainState = MainState::Idle;
-                            data.timerRunning = false;
-                            break;
-                        }
-                    }
+                    
                     break;
 
                 }
@@ -728,6 +720,17 @@ private:
                         break;
                     }
 
+                    if(Serial.available() > 0){
+                        char input = Serial.read();
+                        if(input == 'q'){
+                            Serial.println(F("➔ Exiting Measurement Routine..."));
+                            currentMainState = MainState::Idle;
+                            data.timerRunning = false;
+                            data.measured = true;
+                            break;
+                        }
+                    }
+
                     currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                     data.timerRunning = false;
                 }
@@ -778,26 +781,6 @@ void setup(){
 
 void loop() {
     machine.update(); // Continuously call update to run the state machine
-    /* if( machine.stateChanged() || machine.calibStateChanged() || machine.throttleMeasureStateChanged() ){
-        printState(machine.currentMainState);
-        Serial.print(", ");
-        printState(machine.currentCalibState);
-        Serial.print(", ");
-        printState(machine.currentThrottleMeasureState);
-    } */
 }
-
-
-
-/* int main() {
-    MachineController machine;
-    
-    // Simulate the embedded loop running a few times
-    for (int i = 0; i < 6; ++i) {
-        machine.update();
-    }
-    
-    return 0;
-} */
 
 
