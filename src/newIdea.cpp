@@ -307,7 +307,16 @@ struct MachineController {
     // Run this inside your main embedded loop
     void update() {
         data.instantaneousRawThrottle = readThrottle();
-        if (data.calibrated) data.instantaneousMappedThrottle = map(data.instantaneousRawThrottle, data.minThrottle, data.maxThrottle, 0, 100);
+        if (data.calibrated) data.instantaneousMappedThrottle = map(data.instantaneousRawThrottle, data.minThrottle, data.maxThrottle, 0UL, 100UL);
+        Serial.print(data.instantaneousRawThrottle);
+/*         if( data.calibrated){
+            Serial.print(" ⇒ ");
+            Serial.print(data.instantaneousMappedThrottle);
+            Serial.print("% **** ");
+            Serial.print(data.minThrottle);
+            Serial.print(" <-> ");
+            Serial.println(data.maxThrottle);
+        } */
 
         if( stateChanged() || calibStateChanged() || throttleMeasureStateChanged() )  printAllStates();
 
@@ -336,9 +345,11 @@ struct MachineController {
                 /* ADD ABILITY TO READ THE SERIAL INPUT*/
                 while(Serial.available() == 0);
                 char input = Serial.read();
+                Serial.print(F("➔ INPUT: "));
                 Serial.println(input);
                 switch(input){
                     case 'c':
+                        data.calibrated = false; // Reset calibration flag to ensure calibration routine runs
                         currentCalibState = CalibSubState::Init;
                         currentMainState = MainState::Calibration;
                         break;
@@ -363,6 +374,8 @@ struct MachineController {
                         Serial.println(F("➔ Invalid input, please try again\n➔ "));
 
                     }
+
+                    break; // YOU GORFOT THIS YOU FUCKING IDIOT
                 }
                     
 
@@ -496,7 +509,7 @@ private:
                 while(Serial.available()) Serial.read();
                 Serial.print(F("➔ Set throttle to minimum"));
                 delay(1000);
-                Serial.println(F(" and press Enter"));
+                Serial.print(F(" and press Enter - "));
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 while(Serial.available() == 0){
                     data.instantaneousRawThrottle = readThrottle();
@@ -506,6 +519,7 @@ private:
 //                currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
 //                runThrottleSubmachine();
                 data.minThrottle = data.rawThrottleSwap;
+                Serial.println(data.minThrottle);
 
                 while(Serial.available()) Serial.read();
                 data.rawThrottleSwap = 0;
@@ -513,7 +527,7 @@ private:
                 while(Serial.available()) Serial.read();
                 Serial.print(F("➔ Set throttle to maximum"));
                 delay(1000);
-                Serial.println(F(" and press Enter"));
+                Serial.print(F(" and press Enter - "));
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
                 while(Serial.available() == 0){
                     data.instantaneousRawThrottle = readThrottle();
@@ -524,6 +538,7 @@ private:
                 runThrottleSubmachine();
  */
                 data.maxThrottle = data.rawThrottleSwap;
+                Serial.println(data.maxThrottle);
                 data.rawThrottleSwap = 0;
 
                 currentCalibState = CalibSubState::Complete;
@@ -564,6 +579,11 @@ private:
                 data.voltageSum = 0;
                 data.loadSum = 0;
                 data.sampleCount = 0;
+
+                Serial.print(F("\n➔ Starting Throttle Measurement Routine..."));
+                Serial.print(data.minThrottle);
+                Serial.print(F(" \/\/\/\/ "));
+                Serial.println(data.maxThrottle);
 
                 // FIND A WAY TO CLEAR THE BINS WITHOUT HAVING TO LOOP THROUGH THEM
 //                data.loadBins = {0};
