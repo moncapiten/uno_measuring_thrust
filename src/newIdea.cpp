@@ -252,13 +252,24 @@ void printState(const ThrottleMeasureSubState& state) {
     }
 };
 
+/* void printState(){
+    Serial.println();
+    printState(machine.currentMainState);
+    Serial.print(" | ");
+    printState(machine.currentCalibState);
+    Serial.print(" | ");
+    printState(machine.currentThrottleMeasureState);
+    Serial.println();
+} */
 
 struct MachineController {
     MainState currentMainState = MainState::Idle;
     MainState previousMainState = MainState::Error; // In order to print the welcome message as we start
     CalibSubState currentCalibState = CalibSubState::Init;
-    ThrottleMeasureSubState currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
-    
+    ThrottleMeasureSubState currentThrottleMeasureState = ThrottleMeasureSubState::Init;
+    CalibSubState previousCalibState = CalibSubState::Complete;
+    ThrottleMeasureSubState previousThrottleMeasureState = ThrottleMeasureSubState::Measure;
+
     bool stateChanged(){
         if (currentMainState != previousMainState){
             previousMainState = currentMainState;
@@ -266,15 +277,39 @@ struct MachineController {
         }
         return false;
     }
+    bool calibStateChanged(){
+        if (currentCalibState != previousCalibState){
+            previousCalibState = currentCalibState;
+            return true;
+        }
+        return false;
+    }
+    bool throttleMeasureStateChanged(){
+        if (currentThrottleMeasureState != previousThrottleMeasureState){
+            previousThrottleMeasureState = currentThrottleMeasureState;
+            return true;
+        }
+        return false;
+    }
     // General Purpose variables;
 //    bool calibrated = false;
 
+    void printAllStates(){
+        Serial.println();
+        printState(currentMainState);
+        Serial.print(" | ");
+        printState(currentCalibState);
+        Serial.print(" | ");
+        printState(currentThrottleMeasureState);
+        Serial.println();
+    }
 
     // Run this inside your main embedded loop
     void update() {
         data.instantaneousRawThrottle = readThrottle();
         if (data.calibrated) data.instantaneousMappedThrottle = map(data.instantaneousRawThrottle, data.minThrottle, data.maxThrottle, 0, 100);
 
+        if( stateChanged() || calibStateChanged() || throttleMeasureStateChanged() )  printAllStates();
 
 
         switch (currentMainState) {
@@ -301,6 +336,7 @@ struct MachineController {
                 /* ADD ABILITY TO READ THE SERIAL INPUT*/
                 while(Serial.available() == 0);
                 char input = Serial.read();
+                Serial.println(input);
                 switch(input){
                     case 'c':
                         currentCalibState = CalibSubState::Init;
@@ -340,13 +376,19 @@ struct MachineController {
                 break;
  */
             case MainState::Calibration:
-                if(stateChanged()) Serial.println(F("\n➔ Current State: Calibration"));
+                if(stateChanged()){
+                    Serial.println(F("\n➔ Current State: Calibration"));
+                    currentCalibState = CalibSubState::Init; // Reset sub-state
+                }
                 // Call the dedicated machine handler
                 runCalibrationSubMachine();
                 break;
 
             case MainState::Measurement:
-                if(stateChanged()) Serial.println(F("\n➔ Current State: Measurement"));
+                if(stateChanged()){
+                    Serial.println(F("\n➔ Current State: Measurement"));
+                    currentThrottleMeasureState = ThrottleMeasureSubState::Init; // Reset sub-state
+                }
 
 //                currentThrottleMeasureState = ThrottleMeasureSubState::Init;
                 runThrottleSubmachine();
@@ -497,6 +539,7 @@ private:
                 Serial.println(F("\n➔ Calibration Complete!"));
                 data.calibrated = true; // Set the flag to indicate calibration is done
                 currentMainState = MainState::Idle; // Return to idle or move to measurement
+                currentThrottleMeasureState = ThrottleMeasureSubState::Init; // Reset throttle sub-state for future use
                 break;
         }
     }
@@ -579,6 +622,17 @@ private:
                         data.sampleCount = 0;
                         data.measureStart = millis();
                         currentThrottleMeasureState = ThrottleMeasureSubState::Measure;
+                    }
+
+
+                    if(Serial.available() > 0){
+                        char input = Serial.read();
+                        if(input == 'q'){
+                            Serial.println(F("➔ Exiting Measurement Routine..."));
+                            currentMainState = MainState::Idle;
+                            data.timerRunning = false;
+                            break;
+                        }
                     }
                     break;
 
@@ -704,11 +758,13 @@ void setup(){
 
 void loop() {
     machine.update(); // Continuously call update to run the state machine
-    printState(machine.currentMainState);
-    Serial.print(", ");
-    printState(machine.currentCalibState);
-    Serial.print(", ");
-    printState(machine.currentThrottleMeasureState);
+    /* if( machine.stateChanged() || machine.calibStateChanged() || machine.throttleMeasureStateChanged() ){
+        printState(machine.currentMainState);
+        Serial.print(", ");
+        printState(machine.currentCalibState);
+        Serial.print(", ");
+        printState(machine.currentThrottleMeasureState);
+    } */
 }
 
 
