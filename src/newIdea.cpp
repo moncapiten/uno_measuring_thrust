@@ -256,6 +256,18 @@ void printBits36(unsigned long long num) {
   Serial.write(buffer, 36);
 }
 
+void printCalibration(const SystemData& data_to_print){
+    Serial.println(F("\n➔ Calibration Data:"));
+    Serial.print(F("\tVoltage Ratio (Rv): "));
+    Serial.println(data_to_print.Rv);
+    Serial.print(F("\tCurrent Ratio (Rc): "));
+    Serial.println(data_to_print.Rc);
+    Serial.print(F("\tMin Throttle: "));
+    Serial.println(data_to_print.minThrottle);
+    Serial.print(F("\tMax Throttle: "));
+    Serial.println(data_to_print.maxThrottle);
+}
+
 enum class ThrottleMeasureSubState {
     Init,
     Stabilize,
@@ -471,11 +483,12 @@ private:
                 Serial.println(F("\n➔ Calibrating Voltage Sensor..."));
                 
                 while(Serial.available()) Serial.read();
-                Serial.println(F("Please input the Voltage measuring ratio Rv ( actual voltage = measured Voltage * Rv):\n\t"));
+                Serial.print(F("Please input the Voltage measuring ratio Rv ( actual voltage = measured Voltage * Rv):\t"));
                 while(Serial.available() == 0);
                 data.Rv = Serial.parseFloat();
 //                if( Serial.available() ) data.Rv = Serial.parseFloat();
 
+                Serial.println(data.Rv);
                 currentCalibState = CalibSubState::Current;
                 break;
 
@@ -483,10 +496,11 @@ private:
                 Serial.println(F("\n➔ Calibrating Current Sensor..."));
 
                 while(Serial.available()) Serial.read();
-                Serial.println(F("Please input the Current measuring ratio Rc ( actual current = measured current * Rc):\n\t"));
+                Serial.print(F("Please input the Current measuring ratio Rc ( actual current = measured current * Rc):\t"));
                 while(Serial.available() == 0);
                 data.Rc = Serial.parseFloat();
 
+                Serial.println(data.Rc);
                 currentCalibState = CalibSubState::LoadCell;
                 break;
 
@@ -495,15 +509,16 @@ private:
 
                 Serial.print(F("➔ Remove all weight from the loadcell"));
                 while (Serial.available()) Serial.read();
-                Serial.println(F(" and press Enter"));
+                Serial.print(F(" and press Enter\t"));
                 while (Serial.available() == 0);
+                Serial.println(F("✓"));
 
                 scale.tare(20);
                 int32_t offset = scale.get_offset();
 
                 Serial.print(F("➔ Place a weight on the loadcell"));
                 while (Serial.available()) Serial.read();
-                Serial.print(F(" and enter the weight in (whole) grams and press Enter: "));
+                Serial.print(F(" and enter the weight in (whole) grams and press Enter:\n"));
 
                 uint32_t weight = 0;
                 while (Serial.peek() != '\n')
@@ -573,12 +588,16 @@ private:
                 break;
 
             case CalibSubState::Complete:
-                if( !data.calibrated ){
-                    Serial.println(data.Rv);/*******************************************************************************************************************************************************************************************************************/
-                    Serial.println(data.Rc);/*******************************************************************************************************************************************************************************************************************/
-                    Serial.println(data.minThrottle);/**********************************************************************************************************************************************************************************************************/
-                    Serial.println(data.maxThrottle);/**********************************************************************************************************************************************************************************************************/
-                }
+/*                 if( !data.calibrated ){
+                    Serial.println(data.Rv);//******************************************************************************************************************************************************************************************************************
+                    Serial.println(data.Rc);//******************************************************************************************************************************************************************************************************************
+                    Serial.println(data.minThrottle);//*********************************************************************************************************************************************************************************************************
+                    Serial.println(data.maxThrottle);//*********************************************************************************************************************************************************************************************************
+                } */
+
+                printCalibration(data);
+
+
                 Serial.println(F("\n➔ Calibration Complete!"));
                 data.calibrated = true; // Set the flag to indicate calibration is done
                 currentMainState = MainState::Idle; // Return to idle or move to measurement
@@ -755,6 +774,7 @@ private:
                         Serial.print(bin);
                         Serial.print(F(" → "));
                         Serial.println(avgLoad);*/
+                        Serial.print(F("➔ "));
                         printBits36(data.binFilled_upperHalf);
                         printBits64(data.binFilled_lowerHalf);
                         Serial.print(F(" - "));
