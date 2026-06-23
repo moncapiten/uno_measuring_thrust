@@ -79,53 +79,10 @@ HardwareParams params;
 
 
 
-void send_all_data(const SystemData& data_to_send){
-    Serial.println(F("\n➔ Sending Data..."));
-
-    Serial.println(F("Th[%],\tL[g],\tV[V],\tI[A]"));
-
-    for(int i = 0; i <= 100; i++){
-//        if( (data.binFilled_lowerHalf & (1ULL << i)) || (data.binFilled_upperHalf & (1ULL << (i-64))) ){
-        Serial.print(i);
-        Serial.print(F(",\t"));
-        Serial.print(data.loadBins[i]);
-        Serial.print(F(",\t"));
-        Serial.print(data.voltageBins[i] * data.Rv );
-        Serial.print(F(",\t"));
-        Serial.println(data.currentBins[i] * data.Rc);
-//        }
-    }
-}
 
 
-/* auto readThrottle(bool calibrationMode){
-    auto raw = pulseIn(throttlePin, HIGH, 30000);
-    if( calibrationMode ){
-        return raw;
-    }
 
-    // TODO: IMPLEMENT ERROR IF RAW OUT OF BOUNDS
-    return map(raw, data.minThrottle, data.maxThrottle, 0, 100);
-} */
 
-/* struct AsRaw {};
-struct AsMapped {};
-
-unsigned long readThrottle(AsRaw){
-    unsigned long raw = pulseIn(params.throttlePin, HIGH, 30000);
-    return raw;
-}
-
-float readThrottle(AsMapped){
-    unsigned long raw = pulseIn(params.throttlePin, HIGH, 30000);
-    if( raw <= 0){
-//        Serial.println(F("Sorry there has been an error in reading the throttle value, we are going to restart"));
-//        state = WAIT_STABLE;
-//        timerRunning = false;
-        return -1;
-    }
-    return map(raw, data.minThrottle, data.maxThrottle, 0, 100);
-} */
 
 unsigned long readThrottle(){
     return pulseIn(params.throttlePin, HIGH, 30000);
@@ -172,6 +129,27 @@ enum class MainState {
     Communication   // communicating back to the users all acquired Data
 };
 
+// Sub machine with initial clearing state, state for each sensor and final completion state
+enum class CalibSubState {
+    Init,
+    Voltage,
+    Current,
+    LoadCell,
+    Throttle,
+    Complete
+};
+
+// Sub machine moving based on throttle stabilization, used both in calibration and measurement
+enum class ThrottleMeasureSubState {
+    Init,
+    Stabilize,
+    Calibrate,
+    Measure,
+};
+
+
+
+// helpers to print states
 void printState(const MainState state) {
     switch (state) {
         case MainState::Idle:
@@ -190,17 +168,6 @@ void printState(const MainState state) {
         Serial.print(F("Communication"));
         break;
     }
-};
-
-
-// Sub machine with initial clearing state, state for each sensor and final completion state
-enum class CalibSubState {
-    Init,
-    Voltage,
-    Current,
-    LoadCell,
-    Throttle,
-    Complete
 };
 
 void printState(const CalibSubState& state) {
@@ -225,6 +192,50 @@ void printState(const CalibSubState& state) {
         break;
     }
 };
+
+void printState(const ThrottleMeasureSubState& state) {
+    switch (state) {
+        case ThrottleMeasureSubState::Init:
+        Serial.print(F("Init"));
+        break;
+        case ThrottleMeasureSubState::Stabilize:
+        Serial.print(F("Stabilize"));
+        break;
+        case ThrottleMeasureSubState::Calibrate:
+        Serial.print(F("Calibrate"));
+        break;
+        case ThrottleMeasureSubState::Measure:
+        Serial.print(F("Measure"));
+        break;
+    }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void printBits64(unsigned long long num) {
   // 64 bits + 1 null terminator = 65 bytes
@@ -268,39 +279,30 @@ void printCalibration(const SystemData& data_to_print){
     Serial.println(data_to_print.maxThrottle);
 }
 
-enum class ThrottleMeasureSubState {
-    Init,
-    Stabilize,
-    Calibrate,
-    Measure,
-};
+void send_all_data(const SystemData& data_to_send){
+    Serial.println(F("\n➔ Sending Data..."));
 
-void printState(const ThrottleMeasureSubState& state) {
-    switch (state) {
-        case ThrottleMeasureSubState::Init:
-        Serial.print(F("Init"));
-        break;
-        case ThrottleMeasureSubState::Stabilize:
-        Serial.print(F("Stabilize"));
-        break;
-        case ThrottleMeasureSubState::Calibrate:
-        Serial.print(F("Calibrate"));
-        break;
-        case ThrottleMeasureSubState::Measure:
-        Serial.print(F("Measure"));
-        break;
+    printCalibration(data_to_send);
+
+    Serial.println(F("\nTh[%],\tL[g],\tV[V],\tI[A]"));
+
+    for(int i = 0; i <= 100; i++){
+//        if( (data.binFilled_lowerHalf & (1ULL << i)) || (data.binFilled_upperHalf & (1ULL << (i-64))) ){
+        Serial.print(i);
+        Serial.print(F(",\t"));
+        Serial.print(data.loadBins[i]);
+        Serial.print(F(",\t"));
+        Serial.print(data.voltageBins[i] * data.Rv );
+        Serial.print(F(",\t"));
+        Serial.println(data.currentBins[i] * data.Rc);
+//        }
     }
-};
+}
 
-/* void printState(){
-    Serial.println();
-    printState(machine.currentMainState);
-    Serial.print(" | ");
-    printState(machine.currentCalibState);
-    Serial.print(" | ");
-    printState(machine.currentThrottleMeasureState);
-    Serial.println();
-} */
+
+
+
+
 
 struct MachineController {
     MainState currentMainState = MainState::Idle;
@@ -419,15 +421,6 @@ struct MachineController {
                 }
                     
 
-
-
-/*             case MainState::Idle:
-                // Wait for a button press or command to start calibration
-                Serial.println(F("System Idle. Starting Calibration..."));
-                currentCalibState = CalibSubState::Init; // Reset sub-state
-                currentMainState = MainState::Calibration;
-                break;
- */
             case MainState::Calibration:
                 if(stateChanged()){
                     Serial.println(F("\n➔ Current State: Calibration"));
@@ -518,7 +511,7 @@ private:
 
                 Serial.print(F("➔ Place a weight on the loadcell"));
                 while (Serial.available()) Serial.read();
-                Serial.print(F(" and enter the weight in (whole) grams and press Enter:\n"));
+                Serial.print(F(" and enter the weight in (whole) grams and press Enter:\t"));
 
                 uint32_t weight = 0;
                 while (Serial.peek() != '\n')
@@ -534,7 +527,7 @@ private:
                     }
                 }
 
-                Serial.print(F("WEIGHT: "));
+//                Serial.print(F("WEIGHT: "));
                 Serial.println(weight);
                 scale.calibrate_scale(weight, 20);
                 float scaling_value = scale.get_scale();
@@ -592,7 +585,7 @@ private:
                     Serial.println(data.Rv);//******************************************************************************************************************************************************************************************************************
                     Serial.println(data.Rc);//******************************************************************************************************************************************************************************************************************
                     Serial.println(data.minThrottle);//*********************************************************************************************************************************************************************************************************
-                    Serial.println(data.maxThrottle);//*********************************************************************************************************************************************************************************************************
+                    Serial.println(data.maxThrottle);/*********************************************************************************************************************************************************************************************************
                 } */
 
                 printCalibration(data);
