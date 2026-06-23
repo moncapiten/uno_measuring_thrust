@@ -61,8 +61,8 @@ struct SystemData {
     float loadBins[101] = {0};
 //    bool binFilled[101] = {false};
 
-    unsigned long long int binFilled_firstHalf = 0;     // Using bit manipulation to track filled bins and perform checks fast
-    unsigned long long int binFilled_secondHalf = 0;    // one bit per bin, 1 filled, 0 not filled
+    unsigned long long int binFilled_lowerHalf = 0;     // Using bit manipulation to track filled bins and perform checks fast
+    unsigned long long int binFilled_upperHalf = 0;    // one bit per bin, 1 filled, 0 not filled
 
 
 };
@@ -85,7 +85,7 @@ void send_all_data(const SystemData& data_to_send){
     Serial.println(F("Th[%],\tL[g],\tV[V],\tI[A]"));
 
     for(int i = 0; i <= 100; i++){
-//        if( (data.binFilled_firstHalf & (1ULL << i)) || (data.binFilled_secondHalf & (1ULL << (i-64))) ){
+//        if( (data.binFilled_lowerHalf & (1ULL << i)) || (data.binFilled_upperHalf & (1ULL << (i-64))) ){
         Serial.print(i);
         Serial.print(F(",\t"));
         Serial.print(data.loadBins[i]);
@@ -226,7 +226,35 @@ void printState(const CalibSubState& state) {
     }
 };
 
+void printBits64(unsigned long long num) {
+  // 64 bits + 1 null terminator = 65 bytes
+  char buffer[65]; 
+  buffer[64] = '\0'; // Null-terminate the string
 
+  // Fill the buffer from right to left (LSB to MSB)
+  for (int i = 63; i >= 0; i--) {
+    buffer[i] = (num & 1) ? '1' : '0';
+    num >>= 1; // Shift right by 1 bit
+  }
+
+  // Send the entire block to the hardware serial buffer at once
+  Serial.write(buffer, 64);
+}
+
+void printBits36(unsigned long long num) {
+  // 36 bits + 1 null terminator = 37 bytes
+  char buffer[37]; 
+  buffer[36] = '\0'; // Null-terminate the string
+
+  // Fill the buffer from right to left (LSB to MSB)
+  for (int i = 35; i >= 0; i--) {
+    buffer[i] = (num & 1) ? '1' : '0';
+    num >>= 1; // Shift right by 1 bit
+  }
+
+  // Send the entire block to the hardware serial buffer at once
+  Serial.write(buffer, 36);
+}
 
 enum class ThrottleMeasureSubState {
     Init,
@@ -318,7 +346,7 @@ struct MachineController {
             Serial.println(data.maxThrottle);
         } */
 
-        if( stateChanged() || calibStateChanged() || throttleMeasureStateChanged() )  printAllStates();
+/*        if( stateChanged() || calibStateChanged() || throttleMeasureStateChanged() )  printAllStates();**************************************************************************************************************************************************************************************************************************/
 
 
         switch (currentMainState) {
@@ -575,18 +603,36 @@ private:
                 data.stableStart = 0;
                 data.measureStart = 0;
                 data.timerRunning = false;
+
                 data.currentSum = 0;
                 data.voltageSum = 0;
                 data.loadSum = 0;
                 data.sampleCount = 0;
 
+                memset(data.currentBins, 0, sizeof(data.currentBins));
+                memset(data.voltageBins, 0, sizeof(data.voltageBins));
+                memset(data.loadBins, 0, sizeof(data.loadBins));
+
+                data.binFilled_lowerHalf = 0;
+                data.binFilled_upperHalf = 0;
+
+
                 Serial.print(F("\n➔ Starting Throttle Measurement Routine..."));
                 Serial.print(data.minThrottle);
-                Serial.print(F(" \/\/\/\/ "));
+                Serial.print(F(" _-_-_-_-_ "));
                 Serial.println(data.maxThrottle);
 
                 // FIND A WAY TO CLEAR THE BINS WITHOUT HAVING TO LOOP THROUGH THEM
-//                data.loadBins = {0};
+
+                /* float currentBins[101] = {0};
+                float voltageBins[101] = {0}; */
+/*                 int currentBins[101] = {0};
+                int voltageBins[101] = {0};
+                float loadBins[101] = {0}; */
+            //    bool binFilled[101] = {false};
+
+/*                 unsigned long long int binFilled_lowerHalf = 0;     // Using bit manipulation to track filled bins and perform checks fast
+                unsigned long long int binFilled_upperHalf = 0;    // one bit per bin, 1 filled, 0 not filled */
             
 
                 currentThrottleMeasureState = ThrottleMeasureSubState::Stabilize;
@@ -695,9 +741,9 @@ private:
 //                        data.binFilled[bin] = true; // Mark this bin as filled
 
                         if(bin < 64){
-                            data.binFilled_firstHalf |= (1ULL << bin);
+                            data.binFilled_lowerHalf |= (1ULL << bin);
                         } else {
-                            data.binFilled_secondHalf |= (1ULL << (bin - 64));
+                            data.binFilled_upperHalf |= (1ULL << (bin - 64));
                         }
 
 
@@ -705,15 +751,19 @@ private:
                         // there is an way to exit, either when all bins are filled
                         // or through a user command
 
-                        Serial.print(F("Stored bin "));
+/*                         Serial.print(F("Stored bin "));
                         Serial.print(bin);
                         Serial.print(F(" → "));
-                        Serial.println(avgLoad);
+                        Serial.println(avgLoad);*/
+                        printBits36(data.binFilled_upperHalf);
+                        printBits64(data.binFilled_lowerHalf);
+                        Serial.print(F(" - "));
+                        Serial.println(bin);
                     }
 
                     // printStatus(); // Optionally print status
 
-                    if( (data.binFilled_firstHalf ^ 0xFFFFFFFFFFFFFFFFULL) == 0 && (data.binFilled_secondHalf ^ 0x1FFFFFFFFF) == 0 ){
+                    if( (data.binFilled_lowerHalf ^ 0xFFFFFFFFFFFFFFFFULL) == 0 && (data.binFilled_upperHalf ^ 0x1FFFFFFFFF) == 0 ){
                         Serial.println(F("All bins filled, ending measurement routine."));
                         data.measured = true;
                         currentMainState = MainState::Idle;
