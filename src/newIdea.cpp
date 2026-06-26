@@ -10,11 +10,11 @@ HX711 scale;
 
 struct HardwareParams{
     // Pins
-    const uint8_t currentPin = A0;
-    const uint8_t voltagePin = A1;
+    const int currentPin = A0;
+    const int voltagePin = A5;
     const uint8_t scale_dataPin = 6;
     const uint8_t scale_clockPin = 7;
-    const uint8_t throttlePin = 8;
+    const uint8_t throttlePin = 2;
 
 };
 
@@ -52,17 +52,22 @@ struct SystemData {
     float currentSum = 0;
     float voltageSum = 0;
     float loadSum = 0;
+    uint16_t loadsCount = 0;
     uint16_t sampleCount = 0;
 
     /* float currentBins[101] = {0};
     float voltageBins[101] = {0}; */
-    int currentBins[101] = {0};
-    int voltageBins[101] = {0};
+    float currentBins[101] = {0};
+    float voltageBins[101] = {0};
     float loadBins[101] = {0};
 //    bool binFilled[101] = {false};
 
     unsigned long long int binFilled_lowerHalf = 0;     // Using bit manipulation to track filled bins and perform checks fast
     unsigned long long int binFilled_upperHalf = 0;    // one bit per bin, 1 filled, 0 not filled
+
+
+    unsigned long throttlePulseWidth = 0;
+    unsigned long pulseStart = 0;
 
 
 };
@@ -80,14 +85,20 @@ HardwareParams params;
 
 
 
-
-
-
-
-unsigned long readThrottle(){
-    return pulseIn(params.throttlePin, HIGH, 30000);
+void throttleInterrupt() {
+    if (digitalRead(params.throttlePin) == HIGH) data.pulseStart = micros();
+    else if (data.pulseStart > 0) data.throttlePulseWidth = micros() - data.pulseStart;
 }
 
+
+
+/* unsigned long readThrottle(){
+    return pulseIn(params.throttlePin, HIGH, 30000);
+} */
+
+unsigned long readThrottle() {
+    return data.throttlePulseWidth;
+}
 
 
 
@@ -620,6 +631,7 @@ private:
                 data.voltageSum = 0;
                 data.loadSum = 0;
                 data.sampleCount = 0;
+                data.loadsCount = 0;
 
                 memset(data.currentBins, 0, sizeof(data.currentBins));
                 memset(data.voltageBins, 0, sizeof(data.voltageBins));
@@ -672,6 +684,7 @@ private:
                         data.stableRawValue = data.instantaneousRawThrottle;
                         data.loadSum = 0;
                         data.sampleCount = 0;
+                        data.loadsCount = 0;
                         data.measureStart = millis();
                         currentThrottleMeasureState = ThrottleMeasureSubState::Calibrate;
                     }
@@ -698,6 +711,7 @@ private:
                         data.voltageSum = 0;
                         data.loadSum = 0;
                         data.sampleCount = 0;
+                        data.loadsCount = 0;
                         data.measureStart = millis();
                         currentThrottleMeasureState = ThrottleMeasureSubState::Measure;
                     }
@@ -727,22 +741,25 @@ private:
                     break;
                 }
 
+                data.currentSum += analogRead(params.currentPin);
+                data.voltageSum += analogRead(params.voltagePin);
+                data.sampleCount++;
+
                 if (scale.is_ready()) {
-                    data.currentSum += analogRead(params.currentPin);
-                    data.voltageSum += analogRead(params.voltagePin);
+/*                     data.currentSum += analogRead(params.currentPin);
+                    data.voltageSum += analogRead(params.voltagePin); */
                     data.loadSum += scale.get_units(1);
-                    data.sampleCount++;
+                    data.loadsCount++;
                 }
 
                 if (millis() - data.measureStart > data.T_measure) {
 
                     if (data.sampleCount > 0) {
-/*                         float avgCurrent = data.currentSum / data.sampleCount * data.Rc;
+                        float avgCurrent = data.currentSum / data.sampleCount * data.Rc;
                         float avgVoltage = data.voltageSum / data.sampleCount * data.Rv;
-                        float avgLoad = data.loadSum / data.sampleCount; */
-                        int avgCurrent = (int)(data.currentSum / data.sampleCount);
-                        int avgVoltage = (int)(data.voltageSum / data.sampleCount);
-                        float avgLoad = data.loadSum / data.sampleCount;                        
+/*                         int avgCurrent = (int)(data.currentSum / data.sampleCount);
+                        int avgVoltage = (int)(data.voltageSum / data.sampleCount); */
+                        float avgLoad = data.loadSum / data.loadsCount;                        
 
                         uint8_t bin = quantize(data.stableMappedValue);
 
@@ -771,7 +788,22 @@ private:
                         printBits36(data.binFilled_upperHalf);
                         printBits64(data.binFilled_lowerHalf);
                         Serial.print(F(" - "));
-                        Serial.println(bin);
+                        Serial.print(bin);
+                        Serial.print(F("( "));
+                        Serial.print(data.instantaneousRawThrottle);
+                        Serial.print(F(") - "));
+                        Serial.print(-avgLoad);
+                        Serial.print(F("g ("));
+                        Serial.print(data.loadsCount);
+                        Serial.print(F(" samples) - "));
+                        Serial.print(map(avgVoltage, 0, 1023, 0, 15));
+                        Serial.print(F("V - "));
+                        Serial.print(avgCurrent);
+                        Serial.print(F(" ("));
+                        Serial.print(data.sampleCount);
+                        Serial.println(F(" samples)"));
+
+
                     }
 
                     // printStatus(); // Optionally print status
@@ -836,6 +868,13 @@ MachineController machine;
 void setup(){
     Serial.begin(115200);
     scale.begin(params.scale_dataPin, params.scale_clockPin);
+
+
+    attachInterrupt(digitalPinToInterrupt(params.throttlePin), throttleInterrupt, CHANGE); // Attaching Interrupt for throttle measurement to be fast nad not having to throttle( hehe) the measurements
+
+    pinMode(params.currentPin, INPUT);
+    pinMode(params.voltagePin, INPUT);
+    
 
 //    machine.update(); // Call update once to start the state machine
 
