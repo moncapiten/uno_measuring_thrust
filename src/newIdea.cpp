@@ -796,9 +796,11 @@ private:
                         Serial.print(F("g ("));
                         Serial.print(data.loadsCount);
                         Serial.print(F(" samples) - "));
-                        Serial.print(map(avgVoltage, 0, 1023, 0, 15));
+                        Serial.print(avgVoltage * 0.019528);
+//                        Serial.print(map(avgVoltage, 0, 1023, 0, 15));
                         Serial.print(F("V - "));
-                        Serial.print(avgCurrent);
+                        Serial.print(-( (avgCurrent - 507.4) *0.073969));
+//                        Serial.print(avgCurrent);
                         Serial.print(F(" ("));
                         Serial.print(data.sampleCount);
                         Serial.println(F(" samples)"));
