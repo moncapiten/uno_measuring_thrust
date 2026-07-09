@@ -11,9 +11,9 @@ HX711 scale;
 struct HardwareParams{
     // Pins
     const int currentPin = A0;
-    const int voltagePin = A5;
-    const uint8_t scale_dataPin = 6;
-    const uint8_t scale_clockPin = 7;
+    const int voltagePin = A4;
+    const uint8_t scale_dataPin = 7;
+    const uint8_t scale_clockPin = 6;
     const uint8_t throttlePin = 2;
 
 };
